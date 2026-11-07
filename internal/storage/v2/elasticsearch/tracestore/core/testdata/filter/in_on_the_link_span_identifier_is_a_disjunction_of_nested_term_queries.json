@@ -1,0 +1,26 @@
+{
+  "bool": {
+    "should": [
+      {
+        "nested": {
+          "path": "references",
+          "query": {
+            "term": {
+              "references.spanID": "b7ad6b7169203331"
+            }
+          }
+        }
+      },
+      {
+        "nested": {
+          "path": "references",
+          "query": {
+            "term": {
+              "references.spanID": "00f067aa0ba902b7"
+            }
+          }
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "nested": {
+    "path": "references",
+    "query": {
+      "regexp": {
+        "references.spanID": {
+          "flags": "NONE",
+          "value": ".*([Bb]7[Aa][Dd][^\n]*).*"
+        }
+      }
+    }
+  }
+}

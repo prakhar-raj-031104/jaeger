@@ -31,6 +31,9 @@ const (
 	filterEventNameTest  = "the_name_of_one_of_the_span's_events"
 	filterSpanKindTest   = "the_span_kind"
 	filterSpanStatusTest = "the_span_status"
+	// filterLinkAttributesTest matches a link-level attribute, which a backend that declares the
+	// link level for the identifiers a link carries may still leave unindexed.
+	filterLinkAttributesTest = "a_link-level_attribute_matches_an_attribute_of_one_of_the_span's_links"
 )
 
 // AttributeComparison is the outcome a deployment produces for an ordered comparison on an
@@ -328,6 +331,9 @@ func Elasticsearch() Capabilities {
 			// not map; the levels and operators of its FilterCapabilities are too coarse to say so.
 			filterSpanKindTest,
 			filterSpanStatusTest,
+			// The references nested type indexes the identifiers a link carries, so the link level
+			// is declared for link.traceID and link.spanID, but the link's attributes are not stored.
+			filterLinkAttributesTest,
 		},
 	}
 }

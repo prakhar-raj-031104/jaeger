@@ -52,6 +52,7 @@ func TestFilterCapabilities(t *testing.T) {
 		expression.LevelSpan,
 		expression.LevelResource,
 		expression.LevelEvent,
+		expression.LevelLink,
 	}, caps.Levels)
 	for _, op := range []expression.Operator{
 		expression.OpAnd, expression.OpOr, expression.OpNot,
@@ -64,7 +65,8 @@ func TestFilterCapabilities(t *testing.T) {
 	assert.False(t, caps.SupportsOperator(expression.OpSome),
 		"correlated matching over a span's events is not implemented")
 	assert.False(t, caps.SupportsLevel(expression.LevelScope))
-	assert.False(t, caps.SupportsLevel(expression.LevelLink))
+	assert.True(t, caps.SupportsLevel(expression.LevelLink),
+		"the references nested type indexes the identifiers a link carries")
 }
 
 // filterSnapshots is where the lowered form of each accepted case is committed, one file per case
@@ -193,6 +195,34 @@ func TestBuildFilterQuery(t *testing.T) {
 		{
 			name:   "exists on the span identifier",
 			filter: p.Span().SpanID.Exists(),
+		},
+		{
+			name:   "link.traceID enters the references nested type the write path stores a link in",
+			filter: p.Link().TraceID.Eq("0af7651916cd43dd8448eb211c80319c"),
+		},
+		{
+			name:   "link.spanID is the keyword beside it in the same nested document",
+			filter: p.Link().SpanID.Eq("b7ad6b7169203331"),
+		},
+		{
+			name:   "an uppercase link trace identifier is lowered to the hex the write path stores",
+			filter: p.Link().TraceID.Eq("0AF7651916CD43DD8448EB211C80319C"),
+		},
+		{
+			name:   "a pattern on the link span identifier folds case inside the nested type",
+			filter: p.Link().SpanID.Matches("B7AD.*"),
+		},
+		{
+			name:   "in on the link span identifier is a disjunction of nested term queries",
+			filter: p.Link().SpanID.In("b7ad6b7169203331", "00f067aa0ba902b7"),
+		},
+		{
+			name:   "ne on the link span identifier guards on the nested field's own presence",
+			filter: p.Link().SpanID.Ne("b7ad6b7169203331"),
+		},
+		{
+			name:   "exists on link.traceID enters the nested type before testing the field",
+			filter: p.Link().TraceID.Exists(),
 		},
 		{
 			name:   "span.duration compares microseconds against a value carrying its unit",
@@ -537,13 +567,13 @@ func TestBuildFilterQueryRefused(t *testing.T) {
 			name:    "the scope level is folded into the span's own tags",
 			filter:  p.Scope().Attr("otel.scope.name").Eq("lib"),
 			wantErr: tracestore.ErrFilterUnsupported,
-			wantMsg: `does not index the "scope" level`,
+			wantMsg: `does not index the attributes of the "scope" level`,
 		},
 		{
 			name:    "link attributes are not indexed at all",
 			filter:  p.Link().Attr("k").Eq("v"),
 			wantErr: tracestore.ErrFilterUnsupported,
-			wantMsg: `does not index the "link" level`,
+			wantMsg: `does not index the attributes of the "link" level`,
 		},
 		{
 			name:    "a built-in field this schema has no field for",
@@ -565,9 +595,15 @@ func TestBuildFilterQueryRefused(t *testing.T) {
 		},
 		{
 			name:    "exists on a built-in field this schema has no field for",
-			filter:  p.Link().TraceID.Exists(),
+			filter:  p.Link().TraceState.Exists(),
 			wantErr: tracestore.ErrFilterUnsupported,
-			wantMsg: `built-in field "traceID" of the "link" level`,
+			wantMsg: `built-in field "traceState" of the "link" level`,
+		},
+		{
+			name:    "a link identifier is a keyword inside the nested type, so it carries no order",
+			filter:  p.Link().SpanID.Gt("b7ad6b7169203331"),
+			wantErr: tracestore.ErrFilterUnsupported,
+			wantMsg: `indexes "spanID" as a keyword rather than a number`,
 		},
 		{
 			name:    "ordering an attribute without the typed index",
@@ -921,7 +957,7 @@ func TestBuildFilterQueryRefusalFromWithin(t *testing.T) {
 			query, err := r.reader.buildFilterQuery(filter)
 			assert.Nil(t, query)
 			require.ErrorIs(t, err, tracestore.ErrFilterUnsupported)
-			assert.Contains(t, err.Error(), `does not index the "link" level`)
+			assert.Contains(t, err.Error(), `does not index the attributes of the "link" level`)
 		})
 	}
 }

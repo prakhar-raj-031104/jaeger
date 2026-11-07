@@ -1,0 +1,24 @@
+{
+  "bool": {
+    "must": {
+      "nested": {
+        "path": "references",
+        "query": {
+          "exists": {
+            "field": "references.spanID"
+          }
+        }
+      }
+    },
+    "must_not": {
+      "nested": {
+        "path": "references",
+        "query": {
+          "term": {
+            "references.spanID": "b7ad6b7169203331"
+          }
+        }
+      }
+    }
+  }
+}

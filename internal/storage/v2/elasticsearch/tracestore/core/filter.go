@@ -98,17 +98,19 @@ type attributeLocation struct {
 type valueMatch func(field string) esquery.Query
 
 // FilterCapabilities declares the part of the RFC 0005 filter model this reader evaluates.
-// It omits the scope and link levels, which the schema does not index separately,
-// and the `some` quantifier, whose correlated matching over a span's events is not
-// implemented yet. Which built-in fields are served is not declarable — a field name is
-// indistinguishable from an attribute key — so buildFilterQuery refuses the ones this
-// schema has no field for.
+// It omits the scope level, which the schema does not index separately, and the `some`
+// quantifier, whose correlated matching over a span's events is not implemented yet. The
+// link level is declared for the identifiers a link carries, which the references nested
+// type indexes; its attributes are not indexed and are refused by the lowering. Which
+// built-in fields are served is not declarable — a field name is indistinguishable from an
+// attribute key — so buildFilterQuery refuses the ones this schema has no field for.
 func FilterCapabilities() tracestore.FilterCapabilities {
 	return tracestore.FilterCapabilities{
 		Levels: []expression.Level{
 			expression.LevelSpan,
 			expression.LevelResource,
 			expression.LevelEvent,
+			expression.LevelLink,
 		},
 		Operators: []expression.Operator{
 			expression.OpAnd,
@@ -307,11 +309,36 @@ func (s *SpanReader) buildComparison(
 		return buildTextComparison(traceIDField, op, ref, lowercaseHex(op, text))
 	case ref.isField(expression.LevelSpan, expression.SpanFieldSpanID):
 		return buildTextComparison(spanIDField, op, ref, lowercaseHex(op, text))
+	case ref.isField(expression.LevelLink, expression.LinkFieldTraceID):
+		return buildLinkComparison(traceIDField, op, ref, lowercaseHex(op, text))
+	case ref.isField(expression.LevelLink, expression.LinkFieldSpanID):
+		return buildLinkComparison(spanIDField, op, ref, lowercaseHex(op, text))
 	case ref.isField(expression.LevelEvent, expression.EventFieldName):
 		return s.buildEventNameComparison(op, ref, text)
 	default:
 		return nil, errUnsupportedField(ref)
 	}
+}
+
+// buildLinkComparison compares an identifier of one of the span's links. The write path keeps
+// a link as an entry of the references nested type, holding the identifiers of the span it
+// points at as keywords, so the comparison enters that type and matches the keyword there.
+func buildLinkComparison(
+	field string,
+	op expression.Operator,
+	ref reference,
+	value string,
+) (esquery.Query, error) {
+	match, err := buildTextComparison(nestedField(nestedReferencesField, field), op, ref, value)
+	if err != nil {
+		return nil, err
+	}
+	return esquery.NewNestedQuery(nestedReferencesField, match), nil
+}
+
+func linkExists(field string) esquery.Query {
+	return esquery.NewNestedQuery(nestedReferencesField,
+		esquery.NewExistsQuery(nestedField(nestedReferencesField, field)))
 }
 
 // lowercaseHex makes a constant match an identifier, which is a keyword holding the lowercase hex
@@ -416,6 +443,10 @@ func (s *SpanReader) buildExists(ref reference) (esquery.Query, error) {
 		return esquery.NewExistsQuery(traceIDField), nil
 	case ref.isField(expression.LevelSpan, expression.SpanFieldSpanID):
 		return esquery.NewExistsQuery(spanIDField), nil
+	case ref.isField(expression.LevelLink, expression.LinkFieldTraceID):
+		return linkExists(traceIDField), nil
+	case ref.isField(expression.LevelLink, expression.LinkFieldSpanID):
+		return linkExists(spanIDField), nil
 	case ref.isField(expression.LevelEvent, expression.EventFieldName):
 		return s.buildAttributeExists(eventNameAsAttribute)
 	default:
@@ -773,7 +804,7 @@ func errRefAgainstConstant(predicate *expression.Call) error {
 }
 
 func errUnsupportedLevel(level expression.Level) error {
-	return fmt.Errorf("%w: it does not index the %q level", tracestore.ErrFilterUnsupported, level)
+	return fmt.Errorf("%w: it does not index the attributes of the %q level", tracestore.ErrFilterUnsupported, level)
 }
 
 func errUnsupportedField(ref reference) error {
